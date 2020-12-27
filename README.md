@@ -1,35 +1,133 @@
 # LRP-for-text-classification
-Hints on how to apply/extend the code
-Typically, in order to apply LRP to your own LSTM model and data, you mainly need to adapt the __init__ and set_input methods of the class LSTM_bidi.
-These methods should respectively load your trained model, and define the current input sequence, both in the form of Numpy arrays.
+This project implements a new method to explain 1D-CNN especially for text classification task. Codes was designed for
+experimental purposes and cannot be used in the state to handle any type of 1D-CNN without adaptation. The project comes with
+a multi-channel 1D-CNN model generator which can be used to generating testing models.
 
-The remaining methods mostly don't need to be changed (except in the few cases listed below), if you are using a standard LSTM.
+Dependencies :
+    - python 3.6+
+    - keras (tested on 2.2+)
+    - numpy (1.16+)
+    - pandas (0.24+)
 
-Sanity checks
-Two types of sanity checks can be performed:
+The project contains 4 main directories :
 
-You can verify that the LSTM forward pass using the LSTM_bidi class is consistent with the forward pass of your trained PyTorch/TensorFlow/Keras/(or any other neural network toolbox) model.
+--data/sentiment_analysis
+  This directory contains training and test data to build 1D-CNN models  and test the explanation method
 
-You can verify that the classifier's prediction score for the LRP target class is equal to the sum of the LRP "input" relevances (this includes the relevance of the initial hidden and cell states), in the particular setting where the bias' and stabilizer's share of relevance is redistributed equally onto the lower-layer neurons (i.e. when setting bias_factor to 1.0 in the function lrp_linear).
+-- models :
+  This directory contains pretrained 1D-CNN models for sentiment analysis and for question answering task.
 
-To perform these numerical checks, it can be useful to move to float64 precision.
+-- tokenizers :
+  This directory contains saved keras tokenizer for different datasets. The tokenizer contains the vocabulary that was used
+  to train the pretrained model associated to the dataset
 
-Linear output layer
-In our implementation the linear output layer has no bias.
+-- explanations :
+  This directory contains the results of explanations when executing the file explain_cnn.py. The explanations provided are contained in a json
+  file associated to the name of the dataset/model to explain.
 
-If your model has a final bias, you can incorporate this bias as a parameter into the first two calls to the function lrp_linear in the output layer (i.e. lines 216-217 in file LSTM_bidi.py), instead of using a vector of zeros as we do.
+=======
+Explaining a model
+=======
+- The file explain_cnn.py already has default value. python explain_cnn.py to execute the explainer with the default configurations.
+- To explain another model on a set of samples, execute the following actions :
+   1. open the file explain_cnn.py an edit the model parameters :
+      - set the variable model_name to the model you want to explain. Pretrained model_names are : imdb, qa_1000, qa_5500, and merged
+      - Set the variable n_classes to the number of classes.
+        By default, the pretrained models was built with a word embedding dimension of 50 and a maximum number of words per sentence of 50
+      - Set the variable class_names to the name of classes : class_names = ['NEGATIVE','POSITIVE'] for Sentiment analysis
+        or class_names =  ['DESC','ENTY','ABBR','HUM','NUM','LOC'] for Question Answering
+      - Set the variable embedding_dim to the dimension of the embedding vectors.
+      - The variable kernel_sizes is a list of integers representing the  kernel_size per channel. Example : kernel_sizes = [1,2,3]
+   2. run the command python explain_cnn.py
+   3. The result of the explanation is contained in the directory explanations under the name : <model_name>_all_feature_ngrams.json
 
-However, in general, the output layer's bias is not necessary for the prediction task, and you can train a model without a bias in the last linear layer.
+#To explain the model on a single sentence :
+   edit and execute the file explain_sentence.py
 
-We recommend rather the latter option, since this way, by applying LRP on the output layer, the classifier's prediction score value will be redistributed entirely onto the lower-layer neurons, and no relevance will "leak" into the output layer's bias.
+The code implemented to explain 1D-CNN assumes that the CNN architecture taken as input has exactly 2 dense layers,
+a variable number of channels (from 1 to n), a single global max-pooling layer, one convolution layer per channel
+and a variable number of filters and kernel_sizes per channel.
 
-LSTM weights - gate ordering
-Our code assumes that the LSTM weights have the following ordering: i, g, f, o.
-If your trained LSTM model uses another ordering, say i, f, g, o, then you just need to adapt the gate indices accordingly in our implementation:
+NB: Further versions will take into account models with a variable number of dense layers.
 
-idx  = np.hstack((np.arange(0,2*d), np.arange(3*d,4*d))).astype(int) # indices of gates i,f,o together
-idx_i, idx_f, idx_g, idx_o = np.arange(0,d), np.arange(d,2*d), np.arange(2*d,3*d), np.arange(3*d,4*d) # indices of gates i,f,g,o separately
-Moreover, if your trained LSTM model has only one bias, instead of two like in our code, you can safely replace all occurences of both biases (i.e. self.bxh + self.bhh) by one LSTM bias.
 
-Unidirectional LSTM
-To adapt the code to a unidirectional LSTM, you can just remove all references to the LSTM right encoder, and adapt the number of connected lower-layer neurons accordingly in the output layer (i.e. change the parameter bias_nb_units from 2*d to d in the first call to the function lrp_linear, line 216 of file LSTM_bidi.py).
+=======
+Explanation results
+=======
+The complete json file representing the explanation for a set of predictions is structured as follows :
+The json file is in the form of a list of elements where each element represents the explanation of a particular input sentence
+The json element representing the explanation of each sentence was designed to be self-explanatory. Contributions are in the form
+- ngram feature :
+   - CLASS_NAME : value
+
+Overall represents the relevance of the feature to the class predicted as the difference between its contribution to this class
+and the mean of its contribution to other classes except the predicted class.
+
+[
+    {
+        "sentence": [
+            "it was either too cold not enough flavor or just bad"
+        ],
+        "target_class": "NEGATIVE",
+        "predicted_class": "NEGATIVE",
+        "features": {
+            "all": {
+                "1-ngrams": [
+                    {
+                        "was": {
+                            "NEGATIVE": 0.07160788029432297,
+                            "POSITIVE": -0.06556335836648941,
+                            "Overall": 0.13717123866081238
+                        }
+                    },
+                ...
+                ],
+                "0-ngrams": [
+                    {
+                        "": {
+                            "NEGATIVE": 0.1498018503189087,
+                            "POSITIVE": -0.11607369035482407,
+                            "Overall": 0.26587554812431335
+                        }
+                    }
+                ]
+            },
+            "sufficient": {
+                "1-ngrams": [
+                    {
+                        "not": 0.38679349422454834
+                    }
+                ]
+            },
+            "necessary": {}
+        }
+    },
+    ...
+   ]
+
+"0-ngram" represents ngram features which are not in the vocabulary or the translation of 0-padding sequences
+
+=======
+Training a 1D-CNN model
+=======
+The project comes with codes to trained your own 1D-CNN.
+To build your own CNN model
+1. Defines the following parameters.
+
+ - model_name : models names are defined in the variable file_path_dic. If you want to build a model from your
+own dataset, make sure the data file is saved inside the directory data/sentiment analysis and that its format is as described in data/readme.txt
+Also make sure to add an entry corresponding to the data file in the dictionary file_path_dic
+ - embedding_dim : the dimension of word embeddings
+ - n_classes : The number of classes in the dataset
+ - max_words : The maximum number of words per sentence. Sentences with less word will be padded and sentences with higher number of words will
+               be pruned to reach the max_words
+ - kernel_sizes : a list of integers indicating the kernel_size per channel. Example : kernel_sizes = [1,2,3] means that they are 3 channels
+   and the first channel has filters of kernel_size 1, the second channel has filters of kernel_sizes 2 and the third channel has filters of
+   kernel sizes 3
+
+ - n_filters : a list representing the number of filters per channel. Example : n_filters = [40,40,40]. It means that every channel has 40 filters
+ which makes a total of 120 filters.
+   NB : len(kernel_sizes) == len (n_filters)
+
+2. After execute the command python train_1d_cnn.py
+   The model will be saved in the directory models under a name related to the name defined in the variable model_name
